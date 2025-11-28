@@ -354,49 +354,77 @@
     <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
       
       <!-- Course Filter -->
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <label style="font-weight: 600; color: #333;">Program:</label>
-        <select 
-          [(ngModel)]="selectedCourse" 
-          class="form-control" 
-          style="width: 200px; padding: 8px;">
-          <option *ngFor="let course of getUniqueCourses()" [value]="course">
-            {{ course }}
-          </option>
-        </select>
-      </div>
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <label style="font-weight: 600; color: #333;">Program:</label>
+    <select 
+    [(ngModel)]="selectedCourse" 
+    (change)="onFilterChange()"
+    class="form-control" 
+    style="width: 200px; padding: 8px;">
+    <option *ngFor="let course of getUniqueCourses()" [value]="course">
+      {{ course }}
+    </option>
+  </select>
+</div>
 
       <!-- Year Level Filter -->
       <div style="display: flex; align-items: center; gap: 10px;">
-        <label style="font-weight: 600; color: #333;">Year Level:</label>
-        <select 
-          [(ngModel)]="selectedYearLevel" 
-          class="form-control" 
-          style="width: 150px; padding: 8px;">
-          <option *ngFor="let year of getUniqueYearLevels()" [value]="year">
-            {{ year === 'ALL' ? 'ALL' : 'Year ' + year }}
-          </option>
-        </select>
-      </div>
+  <label style="font-weight: 600; color: #333;">Year Level:</label>
+  <select 
+    [(ngModel)]="selectedYearLevel" 
+    (change)="onFilterChange()"
+    class="form-control" 
+    style="width: 150px; padding: 8px;">
+    <option *ngFor="let year of getUniqueYearLevels()" [value]="year">
+      {{ year === 'ALL' ? 'ALL' : 'Year ' + year }}
+    </option>
+  </select>
+</div>
 
       <!-- ✅ NEW: Department Filter -->
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <label style="font-weight: 600; color: #333;">Department:</label>
-        <select 
-          [(ngModel)]="selectedDepartment" 
-          class="form-control" 
-          style="width: 150px; padding: 8px;">
-          <option *ngFor="let dept of getUniqueDepartments()" [value]="dept">
-            {{ dept }}
-          </option>
-        </select>
-      </div>
+  <div style="display: flex; align-items: center; gap: 10px;">
+  <label style="font-weight: 600; color: #333;">Department:</label>
+  <select 
+    [(ngModel)]="selectedDepartment" 
+    (change)="onFilterChange()"
+    class="form-control" 
+    style="width: 150px; padding: 8px;">
+    <option *ngFor="let dept of getUniqueDepartments()" [value]="dept">
+      {{ dept }}
+    </option>
+  </select>
+</div>
 
-      <!-- Result Count -->
-      <div style="margin-left: auto; color: #666; font-weight: 600;">
-        Showing {{ getFilteredSchedule().length }} of {{ generatedSchedule.length }} exams
-      </div>
-    </div>
+
+  <!-- ✅ NEW: Day Filter -->
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <label style="font-weight: 600; color: #333;">Exam Day:</label>
+    <select 
+      [(ngModel)]="selectedDay" 
+      (change)="onFilterChange()"
+      class="form-control" 
+      style="width: 200px; padding: 8px;">
+      <option *ngFor="let day of getExamDays()" [value]="day.value">
+        {{ day.label }}
+      </option>
+    </select>
+  </div>
+
+  <!-- Clear Filters Button -->
+  <div style="display: flex; align-items: center; gap: 10px;">
+  <button 
+    class="btn btn-outline" 
+    (click)="clearFilters()"
+    style="padding: 8px 16px;">
+    🔄 Clear Filters
+  </button>
+</div>
+
+ <!-- Result Count -->
+  <div style="margin-left: auto; color: #666; font-weight: 600;">
+    Showing {{ getFilteredSchedule().length }} of {{ generatedSchedule.length }} exams
+   </div>
+</div>
 
     <!-- ✅ UPDATED TABLE: Added Department Column -->
     <div style="overflow-x: auto; overflow-y: auto; max-height: 600px; border: 1px solid #ddd;">

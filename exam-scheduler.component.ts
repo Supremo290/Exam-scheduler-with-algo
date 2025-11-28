@@ -82,7 +82,8 @@ export class ExamSchedulerComponent implements OnInit {
 
   selectedCourse: string = 'ALL';
   selectedYearLevel: string = 'ALL';
-  selectedDepartment: string = 'ALL'; // NEW: Add department filter
+  selectedDepartment: string = 'ALL'; 
+  selectedDay: string = 'ALL';
 
   constructor(
     public api: ApiService,
@@ -1149,12 +1150,16 @@ async generateExamSchedule() {
 
 
   getUniqueDepartments(): string[] {
+  console.log('🔍 Getting unique departments...');
   const departments = new Set<string>();
   this.generatedSchedule.forEach(exam => {
     if (exam.DEPT) departments.add(exam.DEPT);
   });
-  return ['ALL', ...Array.from(departments).sort()];
+  const result = ['ALL', ...Array.from(departments).sort()];
+  console.log('✅ Unique departments:', result);
+  return result;
 }
+
 
   // ===================================================================
   // EDITING METHODS
@@ -1404,6 +1409,35 @@ async generateExamSchedule() {
   // Prepare data
   this.generateSimpleScheduleData();
   
+  // Reset ALL filters
+  this.selectedCourse = 'ALL';
+  this.selectedYearLevel = 'ALL';
+  this.selectedDepartment = 'ALL';
+  this.selectedDay = 'ALL'; // 
+
+
+
+  
+  
+  // Navigate
+  this.currentStep = 'simpleschedule';
+  
+  // Force UI update
+  this.cdr.detectChanges();
+  
+  console.log('✅ Navigated to simple schedule view');
+}iewSimpleSchedule() {
+  console.log('📋 viewSimpleSchedule() called');
+  console.log('📋 Schedule length:', this.generatedSchedule.length);
+  
+  if (this.generatedSchedule.length === 0) {
+    this.showToast('Error', 'No schedule data available', 'destructive');
+    return;
+  }
+  
+  // Prepare data
+  this.generateSimpleScheduleData();
+  
   // Reset filters
   this.selectedCourse = 'ALL';
   this.selectedYearLevel = 'ALL';
@@ -1418,6 +1452,15 @@ async generateExamSchedule() {
   console.log('✅ Navigated to simple schedule view');
 }
 
+
+clearFilters() {
+  this.selectedCourse = 'ALL';
+  this.selectedYearLevel = 'ALL';
+  this.selectedDepartment = 'ALL';
+  this.selectedDay = 'ALL';
+  this.onFilterChange();
+}
+
 generateSimpleScheduleData() {
   this.generatedSchedule.sort((a, b) => {
     const codeA = parseInt(a.CODE) || 0;
@@ -1427,19 +1470,30 @@ generateSimpleScheduleData() {
 }
 
 getUniqueCourses(): string[] {
+  console.log('🔍 Getting unique courses...');
   const courses = new Set<string>();
   this.generatedSchedule.forEach(exam => {
     if (exam.COURSE) courses.add(exam.COURSE);
   });
-  return ['ALL', ...Array.from(courses).sort()];
+  const result = ['ALL', ...Array.from(courses).sort()];
+  console.log('✅ Unique courses:', result);
+  return result;
 }
 
+
 getUniqueYearLevels(): string[] {
+  console.log('🔍 Getting unique year levels...');
   const years = new Set<string>();
   this.generatedSchedule.forEach(exam => {
     if (exam.YEAR_LEVEL) years.add(exam.YEAR_LEVEL.toString());
   });
-  return ['ALL', ...Array.from(years).sort()];
+  const result = ['ALL', ...Array.from(years).sort((a, b) => {
+    if (a === 'ALL') return -1;
+    if (b === 'ALL') return 1;
+    return parseInt(a) - parseInt(b);
+  })];
+  console.log('✅ Unique years:', result);
+  return result;
 }
 
 getFilteredSchedule(): ScheduledExam[] {
@@ -1447,12 +1501,25 @@ getFilteredSchedule(): ScheduledExam[] {
   console.log('Selected Course:', this.selectedCourse);
   console.log('Selected Year:', this.selectedYearLevel);
   console.log('Selected Dept:', this.selectedDepartment);
+  console.log('Selected Day:', this.selectedDay);
+  console.log('Total schedule length:', this.generatedSchedule.length);
   
   const filtered = this.generatedSchedule.filter(exam => {
+    // Course filter
     const courseMatch = this.selectedCourse === 'ALL' || exam.COURSE === this.selectedCourse;
-    const yearMatch = this.selectedYearLevel === 'ALL' || exam.YEAR_LEVEL.toString() === this.selectedYearLevel;
+    
+    // Year level filter
+    const yearMatch = this.selectedYearLevel === 'ALL' || 
+                      exam.YEAR_LEVEL.toString() === this.selectedYearLevel ||
+                      exam.YEAR_LEVEL === parseInt(this.selectedYearLevel);
+    
+    // Department filter
     const deptMatch = this.selectedDepartment === 'ALL' || exam.DEPT === this.selectedDepartment;
-    return courseMatch && yearMatch && deptMatch;
+    
+    // ✅ NEW: Day filter
+    const dayMatch = this.selectedDay === 'ALL' || exam.DAY === this.selectedDay;
+    
+    return courseMatch && yearMatch && deptMatch && dayMatch;
   });
   
   console.log('✅ Filtered results:', filtered.length);
@@ -1474,14 +1541,83 @@ formatTimeForDisplay(slot: string): string {
   return `${formatTime(parts[0])}-${formatTime(parts[1])}`;
 }
 
-getDayName(day: string): string {
-  const dayMap: { [key: string]: string } = {
-    'Day 1': 'MWF',
-    'Day 2': 'TTH',
-    'Day 3': 'SAT'
-  };
-  return dayMap[day] || day;
+onFilterChange() {
+  console.log('🔄 Filter changed!');
+  console.log('Current filters:', {
+    course: this.selectedCourse,
+    year: this.selectedYearLevel,
+    dept: this.selectedDepartment
+  });
+  this.cdr.detectChanges();
 }
+
+getDayName(day: string): string {
+  console.log('🔍 Getting day name for:', day);
+  
+  // Map Day 1, Day 2, Day 3 to actual exam dates
+  const dayIndex = this.days.indexOf(day);
+  
+  if (dayIndex === -1 || dayIndex >= this.examDates.length) {
+    console.warn('⚠️ Invalid day:', day);
+    return day;
+  }
+  
+  const examDate = this.examDates[dayIndex];
+  
+  if (!examDate) {
+    console.warn('⚠️ No exam date for day:', day);
+    return day;
+  }
+  
+  // Convert the date string to a Date object
+  const dateObj = new Date(examDate + 'T00:00:00'); // Add time to avoid timezone issues
+  
+  // Get the day name (e.g., "Monday")
+  const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+  
+  // Format the date (e.g., "01/27/2025")
+  const formattedDate = dateObj.toLocaleDateString('en-US', { 
+    month: '2-digit', 
+    day: '2-digit', 
+    year: 'numeric' 
+  });
+  
+  // Return format: "Monday, 01/27/2025"
+  const result = `${dayName}, ${formattedDate}`;
+  
+  console.log('✅ Converted', day, 'to:', result);
+  return result;
+}
+
+
+getExamDays(): { label: string, value: string }[] {
+  const options = [{ label: 'ALL DAYS', value: 'ALL' }];
+  
+  this.days.forEach((day, index) => {
+    if (this.examDates[index]) {
+      const dateObj = new Date(this.examDates[index] + 'T00:00:00');
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+      const formattedDate = dateObj.toLocaleDateString('en-US', { 
+        month: '2-digit', 
+        day: '2-digit',
+        year: 'numeric'
+      });
+      
+      options.push({
+        label: `${day} - ${dayName}, ${formattedDate}`,
+        value: day
+      });
+    } else {
+      options.push({
+        label: day,
+        value: day
+      });
+    }
+  });
+  
+  return options;
+}
+
 
 downloadSimpleScheduleExcel() {
   const filtered = this.getFilteredSchedule();
