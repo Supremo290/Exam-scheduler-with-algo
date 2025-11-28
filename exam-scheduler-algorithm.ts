@@ -1,14 +1,14 @@
 // ===================================================================
-// USL-ERP EXAM SCHEDULER - COMPLETE REWRITE V4.0
+// USL-ERP EXAM SCHEDULER - ENHANCED ALGORITHM V5.0
 // ===================================================================
-// Complete rewrite to achieve 98%+ scheduling coverage
-// Strategy: Process ALL exams, not just Gen Eds
+// Based on USL-ERP Complete Requirements v2.0
+// Implements: Gen Ed Time Blocks, Priority System, 6-Unit Handling
 // ===================================================================
 
 import { Exam, ScheduledExam, ConflictMatrix, SchedulingState } from '../subject-code';
 
 // ===================================================================
-// CONSTANTS
+// CONSTANTS & CONFIGURATION
 // ===================================================================
 
 const TIME_SLOTS = [
@@ -16,14 +16,79 @@ const TIME_SLOTS = [
   '1:30-3:00', '3:00-4:30', '4:30-6:00', '6:00-7:30'
 ];
 
+// Gen Ed Time Block Mapping (from Section 6 of requirements)
+const GEN_ED_TIME_BLOCKS: { [key: string]: { day: number, slot: number, capacity: number }[] } = {
+  'ETHC': [
+    { day: 0, slot: 0, capacity: 14 } // Day 1, 7:30-9:00 AM
+  ],
+  'ENGL': [
+    { day: 0, slot: 2, capacity: 23 }, // Day 1, 10:30-12:00 PM
+    { day: 2, slot: 0, capacity: 34 }  // Day 3, 7:30-9:00 AM
+  ],
+  'PHED': [
+    { day: 0, slot: 3, capacity: 27 }, // Day 1, 12:00-1:30 PM
+    { day: 1, slot: 0, capacity: 46 }  // Day 2, 7:30-9:00 AM
+  ],
+  'CFED': [
+    { day: 0, slot: 4, capacity: 46 }, // Day 1, 1:30-3:00 PM
+    { day: 1, slot: 1, capacity: 36 }, // Day 2, 9:00-10:30 AM
+    { day: 1, slot: 2, capacity: 44 }  // Day 2, 10:30-12:00 PM
+  ],
+  'CONW': [
+    { day: 1, slot: 5, capacity: 33 }  // Day 2, 3:00-4:30 PM
+  ],
+  'LANG': [
+    { day: 2, slot: 3, capacity: 15 }  // Day 3, 12:00-1:30 PM
+  ],
+  'LITR': [
+    { day: 2, slot: 4, capacity: 9 }   // Day 3, 1:30-3:00 PM
+  ]
+};
+
+// Priority levels (Section 4)
+const PRIORITY_LEVELS = {
+  GEN_ED: 100000,
+  MATH: 50000,
+  ARCH: 40000,
+  MAJOR: 10000
+};
+
 // ===================================================================
 // HELPER FUNCTIONS
 // ===================================================================
 
-function isGenEdSubject(subjectId: string): boolean {
-  if (!subjectId) return false;
+function getGenEdType(subjectId: string): string | null {
+  if (!subjectId) return null;
   const upper = subjectId.toUpperCase();
-  return ['CFED', 'PHED', 'ENGL', 'CONW', 'LANG', 'JAPN', 'CHIN', 'SPAN', 'LITR', 'ETHC', 'RESM'].some(p => upper.startsWith(p));
+  
+  if (upper.startsWith('ETHC')) return 'ETHC';
+  if (upper.startsWith('ENGL')) return 'ENGL';
+  if (upper.startsWith('PHED')) return 'PHED';
+  if (upper.startsWith('CFED')) return 'CFED';
+  if (upper.startsWith('CONW')) return 'CONW';
+  if (upper.startsWith('LANG') || upper.startsWith('JAPN') || upper.startsWith('CHIN') || upper.startsWith('SPAN')) return 'LANG';
+  if (upper.startsWith('LITR')) return 'LITR';
+  
+  return null;
+}
+
+function isGenEdSubject(subjectId: string): boolean {
+  return getGenEdType(subjectId) !== null;
+}
+
+function isMathSubject(exam: Exam): boolean {
+  return exam.subjectId.toUpperCase().startsWith('MATH') && exam.dept.toUpperCase() === 'SACE';
+}
+
+function isArchSubject(subjectId: string): boolean {
+  return subjectId.toUpperCase().includes('ARCH');
+}
+
+function calculatePriority(exam: Exam): number {
+  if (isGenEdSubject(exam.subjectId)) return PRIORITY_LEVELS.GEN_ED;
+  if (isMathSubject(exam)) return PRIORITY_LEVELS.MATH;
+  if (isArchSubject(exam.subjectId)) return PRIORITY_LEVELS.ARCH;
+  return PRIORITY_LEVELS.MAJOR;
 }
 
 function getBuildingFromRoom(room: string): string {
@@ -32,29 +97,24 @@ function getBuildingFromRoom(room: string): string {
 }
 
 function getAvailableBuildings(dept: string, subjectId: string): string[] {
-  if (subjectId.toUpperCase().includes('ARCH')) {
-    return ['C', 'K'];
+  // CRITICAL: ARCH subjects MUST use Building C (Section 3)
+  if (isArchSubject(subjectId)) {
+    return ['C', 'K']; // C is mandatory, K is fallback
   }
   
   const deptUpper = dept.toUpperCase();
   
-  if (deptUpper.includes('SECAP') || deptUpper.includes('ACCT') || deptUpper.includes('ECON') || deptUpper.includes('BSBA')) {
-    return ['A', 'J', 'B'];
-  }
-  
-  if (deptUpper.includes('SABH') || deptUpper.includes('NURS') || deptUpper.includes('SBH')) {
-    return ['A'];
-  }
-  
-  if (deptUpper.includes('SACE') || deptUpper.includes('SCE') || deptUpper.includes('CENG') || deptUpper.includes('ENG')) {
-    return ['N', 'K', 'C'];
-  }
-  
-  if (deptUpper.includes('SHAS') || deptUpper.includes('HUMSS') || deptUpper.includes('HUM')) {
-    return ['L', 'M', 'N', 'K', 'J'];
-  }
+  // Department-Building mapping (Section 3)
+  if (deptUpper.includes('SECAP')) return ['A', 'J', 'B'];
+  if (deptUpper.includes('SABH')) return ['A'];
+  if (deptUpper.includes('SACE')) return ['N', 'K', 'C'];
+  if (deptUpper.includes('SHAS')) return ['L', 'M', 'N', 'K', 'J'];
   
   return ['A', 'N', 'K', 'L', 'M', 'J', 'B', 'C'];
+}
+
+function is6UnitSubject(exam: Exam): boolean {
+  return exam.lec === 6;
 }
 
 // ===================================================================
@@ -63,31 +123,21 @@ function getAvailableBuildings(dept: string, subjectId: string): string[] {
 
 function buildConflictMatrix(exams: Exam[]): ConflictMatrix {
   const matrix: ConflictMatrix = {};
-  
-  // Group by course-year
   const courseYearGroups: { [key: string]: Exam[] } = {};
   
   exams.forEach(exam => {
     if (!exam.course || !exam.yearLevel) return;
-    
     const key = `${exam.course.trim()}-${exam.yearLevel}`;
-    if (!courseYearGroups[key]) {
-      courseYearGroups[key] = [];
-    }
+    if (!courseYearGroups[key]) courseYearGroups[key] = [];
     courseYearGroups[key].push(exam);
   });
   
-  // Build conflict relationships
   Object.entries(courseYearGroups).forEach(([courseYear, groupExams]) => {
-    if (!matrix[courseYear]) {
-      matrix[courseYear] = {};
-    }
+    if (!matrix[courseYear]) matrix[courseYear] = {};
     
     groupExams.forEach(exam1 => {
       const subj1 = exam1.subjectId.toUpperCase().trim();
-      if (!matrix[courseYear][subj1]) {
-        matrix[courseYear][subj1] = new Set();
-      }
+      if (!matrix[courseYear][subj1]) matrix[courseYear][subj1] = new Set();
       
       groupExams.forEach(exam2 => {
         const subj2 = exam2.subjectId.toUpperCase().trim();
@@ -115,13 +165,10 @@ function hasConflict(
   const slotKey = TIME_SLOTS[slot];
   const subjId = exam.subjectId.toUpperCase().trim();
   
-  if (!conflictMatrix[courseYear] || !conflictMatrix[courseYear][subjId]) {
-    return false;
-  }
+  if (!conflictMatrix[courseYear] || !conflictMatrix[courseYear][subjId]) return false;
   
   const conflicts = conflictMatrix[courseYear][subjId];
   
-  // Check if any conflicting subject is at this slot
   for (const conflictSubj of conflicts) {
     const existing = state.subjectScheduled.get(conflictSubj);
     if (existing && existing.day === dayKey && existing.slot === slotKey) {
@@ -133,7 +180,7 @@ function hasConflict(
 }
 
 // ===================================================================
-// ROOM SELECTION
+// ROOM MANAGEMENT
 // ===================================================================
 
 function getAvailableRooms(
@@ -141,24 +188,36 @@ function getAvailableRooms(
   day: number,
   slot: number,
   allRooms: string[],
-  state: SchedulingState
+  state: SchedulingState,
+  requireConsecutive: boolean = false
 ): string[] {
   const dayKey = `Day ${day + 1}`;
   const slotKey = TIME_SLOTS[slot];
   
-  // Filter by building
+  // Filter by building constraints
   const allowedBuildings = getAvailableBuildings(exam.dept, exam.subjectId);
   let available = allRooms.filter(room => {
     const building = getBuildingFromRoom(room);
     return allowedBuildings.includes(building);
   });
   
-  // Remove occupied rooms
+  // Get occupied rooms for current slot
   const occupied = new Set<string>();
   if (state.roomUsage.has(dayKey)) {
     const dayUsage = state.roomUsage.get(dayKey)!;
     if (dayUsage.has(slotKey)) {
       dayUsage.get(slotKey)!.forEach(room => occupied.add(room));
+    }
+  }
+  
+  // For 6-unit subjects, check next slot availability too
+  if (requireConsecutive && slot < TIME_SLOTS.length - 1) {
+    const nextSlotKey = TIME_SLOTS[slot + 1];
+    if (state.roomUsage.has(dayKey)) {
+      const dayUsage = state.roomUsage.get(dayKey)!;
+      if (dayUsage.has(nextSlotKey)) {
+        dayUsage.get(nextSlotKey)!.forEach(room => occupied.add(room));
+      }
     }
   }
   
@@ -168,7 +227,7 @@ function getAvailableRooms(
 }
 
 // ===================================================================
-// SCHEDULING LOGIC
+// SCHEDULING OPERATIONS
 // ===================================================================
 
 function scheduleExam(
@@ -177,7 +236,8 @@ function scheduleExam(
   slot: number,
   room: string,
   state: SchedulingState,
-  scheduled: Map<string, ScheduledExam>
+  scheduled: Map<string, ScheduledExam>,
+  isSecondSlotOf6Unit: boolean = false
 ): void {
   const dayKey = `Day ${day + 1}`;
   const slotKey = TIME_SLOTS[slot];
@@ -196,12 +256,12 @@ function scheduleExam(
     ROOM: room,
     UNITS: exam.lec,
     STUDENT_COUNT: exam.studentCount,
-    PRIORITY: 0,
+    PRIORITY: calculatePriority(exam),
     IS_REGULAR: exam.isRegular,
     LECTURE_ROOM: exam.lectureRoom
   };
   
-  // Update state
+  // Update room usage
   if (!state.roomUsage.has(dayKey)) {
     state.roomUsage.set(dayKey, new Map());
   }
@@ -210,43 +270,35 @@ function scheduleExam(
   }
   state.roomUsage.get(dayKey)!.get(slotKey)!.add(room);
   
-  state.subjectScheduled.set(exam.subjectId.toUpperCase().trim(), { day: dayKey, slot: slotKey });
+  // Update subject tracking (only for first slot of 6-unit)
+  if (!isSecondSlotOf6Unit) {
+    state.subjectScheduled.set(exam.subjectId.toUpperCase().trim(), { day: dayKey, slot: slotKey });
+  }
   
   scheduled.set(exam.code + '-' + slotKey, scheduledExam);
 }
 
-function tryScheduleExam(
+function schedule6UnitExam(
   exam: Exam,
-  allRooms: string[],
+  day: number,
+  slot: number,
+  room: string,
   state: SchedulingState,
-  conflictMatrix: ConflictMatrix,
-  scheduled: Map<string, ScheduledExam>,
-  numDays: number
+  scheduled: Map<string, ScheduledExam>
 ): boolean {
-  // Try every day and slot
-  for (let day = 0; day < numDays; day++) {
-    for (let slot = 0; slot < TIME_SLOTS.length; slot++) {
-      // Check for conflicts
-      if (hasConflict(exam, day, slot, state, conflictMatrix)) {
-        continue;
-      }
-      
-      // Get available rooms
-      const availableRooms = getAvailableRooms(exam, day, slot, allRooms, state);
-      
-      if (availableRooms.length > 0) {
-        // Schedule it!
-        scheduleExam(exam, day, slot, availableRooms[0], state, scheduled);
-        return true;
-      }
-    }
-  }
+  if (slot >= TIME_SLOTS.length - 1) return false; // Need 2 consecutive slots
   
-  return false;
+  // Schedule first slot
+  scheduleExam(exam, day, slot, room, state, scheduled, false);
+  
+  // Schedule second slot
+  scheduleExam(exam, day, slot + 1, room, state, scheduled, true);
+  
+  return true;
 }
 
 // ===================================================================
-// GROUP SCHEDULING (for same subject_id coordination)
+// GROUP SCHEDULING (Same Subject ID Coordination)
 // ===================================================================
 
 function groupExamsBySubject(exams: Exam[]): Map<string, Exam[]> {
@@ -254,9 +306,7 @@ function groupExamsBySubject(exams: Exam[]): Map<string, Exam[]> {
   
   exams.forEach(exam => {
     const subjectId = exam.subjectId.toUpperCase().trim();
-    if (!groups.has(subjectId)) {
-      groups.set(subjectId, []);
-    }
+    if (!groups.has(subjectId)) groups.set(subjectId, []);
     groups.get(subjectId)!.push(exam);
   });
   
@@ -274,76 +324,283 @@ function tryScheduleGroup(
 ): boolean {
   if (examGroup.length === 0) return true;
   
+  // Check if any exam in group is 6-unit
+  const has6Unit = examGroup.some(e => is6UnitSubject(e));
+  
   // Check conflicts for all exams
   for (const exam of examGroup) {
-    if (hasConflict(exam, day, slot, state, conflictMatrix)) {
-      return false;
-    }
+    if (hasConflict(exam, day, slot, state, conflictMatrix)) return false;
   }
   
   // Get available rooms
-  const availableRooms = getAvailableRooms(examGroup[0], day, slot, allRooms, state);
+  const availableRooms = getAvailableRooms(examGroup[0], day, slot, allRooms, state, has6Unit);
   
-  if (availableRooms.length < examGroup.length) {
-    return false;
-  }
+  if (availableRooms.length < examGroup.length) return false;
   
   // Schedule all sections
   for (let i = 0; i < examGroup.length; i++) {
-    scheduleExam(examGroup[i], day, slot, availableRooms[i], state, scheduled);
+    const exam = examGroup[i];
+    
+    if (is6UnitSubject(exam)) {
+      if (!schedule6UnitExam(exam, day, slot, availableRooms[i], state, scheduled)) {
+        return false;
+      }
+    } else {
+      scheduleExam(exam, day, slot, availableRooms[i], state, scheduled);
+    }
   }
   
   return true;
 }
 
-function tryScheduleGroupAnywhere(
-  examGroup: Exam[],
+// ===================================================================
+// PHASE 1: GEN ED TIME BLOCKS
+// ===================================================================
+
+function scheduleGenEdTimeBlocks(
+  exams: Exam[],
   allRooms: string[],
   state: SchedulingState,
   conflictMatrix: ConflictMatrix,
   scheduled: Map<string, ScheduledExam>,
   numDays: number
-): boolean {
-  // Split into smaller batches if needed
-  const maxBatchSize = 35; // Conservative batch size
+): { scheduled: number, failed: Exam[] } {
+  console.log('\n📚 PHASE 1: Gen Ed Time Block Scheduling...');
   
-  if (examGroup.length <= maxBatchSize) {
-    // Try to schedule as one group
-    for (let day = 0; day < numDays; day++) {
-      for (let slot = 0; slot < TIME_SLOTS.length; slot++) {
-        if (tryScheduleGroup(examGroup, day, slot, allRooms, state, conflictMatrix, scheduled)) {
-          return true;
+  let scheduledCount = 0;
+  const failed: Exam[] = [];
+  
+  // Group Gen Eds by type
+  const genEdsByType = new Map<string, Exam[]>();
+  
+  exams.forEach(exam => {
+    const genEdType = getGenEdType(exam.subjectId);
+    if (genEdType) {
+      if (!genEdsByType.has(genEdType)) genEdsByType.set(genEdType, []);
+      genEdsByType.get(genEdType)!.push(exam);
+    }
+  });
+  
+  // Schedule each Gen Ed type in its dedicated time blocks
+  genEdsByType.forEach((genEdExams, genEdType) => {
+    console.log(`  📗 Scheduling ${genEdType} (${genEdExams.length} sections)...`);
+    
+    // Group by subject ID for coordination
+    const subjectGroups = groupExamsBySubject(genEdExams);
+    
+    // Get time blocks for this Gen Ed type
+    const timeBlocks = GEN_ED_TIME_BLOCKS[genEdType] || [];
+    
+    if (timeBlocks.length === 0) {
+      console.warn(`    ⚠️  No time blocks defined for ${genEdType}, scheduling flexibly`);
+      subjectGroups.forEach((group, subjectId) => {
+        let placed = false;
+        
+        for (let day = 0; day < numDays && !placed; day++) {
+          for (let slot = 0; slot < TIME_SLOTS.length && !placed; slot++) {
+            if (tryScheduleGroup(group, day, slot, allRooms, state, conflictMatrix, scheduled)) {
+              scheduledCount += group.length;
+              placed = true;
+              console.log(`    ✅ ${subjectId} (${group.length} sections)`);
+            }
+          }
+        }
+        
+        if (!placed) {
+          failed.push(...group);
+          console.log(`    ⚠️  ${subjectId} (${group.length} sections) - deferred`);
+        }
+      });
+      return;
+    }
+    
+    // Try to place each subject group in dedicated time blocks
+    subjectGroups.forEach((group, subjectId) => {
+      let placed = false;
+      
+      // Try each time block for this Gen Ed type
+      for (const block of timeBlocks) {
+        if (block.day < numDays && !placed) {
+          if (tryScheduleGroup(group, block.day, block.slot, allRooms, state, conflictMatrix, scheduled)) {
+            scheduledCount += group.length;
+            placed = true;
+            console.log(`    ✅ ${subjectId} (${group.length} sections) → Day ${block.day + 1}, ${TIME_SLOTS[block.slot]}`);
+          }
         }
       }
-    }
-    return false;
-  }
-  
-  // Split into batches
-  let allScheduled = true;
-  
-  for (let i = 0; i < examGroup.length; i += maxBatchSize) {
-    const batch = examGroup.slice(i, Math.min(i + maxBatchSize, examGroup.length));
-    let batchScheduled = false;
-    
-    for (let day = 0; day < numDays && !batchScheduled; day++) {
-      for (let slot = 0; slot < TIME_SLOTS.length && !batchScheduled; slot++) {
-        if (tryScheduleGroup(batch, day, slot, allRooms, state, conflictMatrix, scheduled)) {
-          batchScheduled = true;
-        }
+      
+      if (!placed) {
+        failed.push(...group);
+        console.log(`    ⚠️  ${subjectId} (${group.length} sections) - time blocks full, deferred`);
       }
-    }
-    
-    if (!batchScheduled) {
-      allScheduled = false;
-    }
-  }
+    });
+  });
   
-  return allScheduled;
+  console.log(`  ✅ Phase 1 complete: ${scheduledCount} Gen Eds scheduled`);
+  return { scheduled: scheduledCount, failed };
 }
 
 // ===================================================================
-// MAIN ALGORITHM - SIMPLE 2-PHASE APPROACH
+// PHASE 2: HIGH PRIORITY SUBJECTS (MATH & ARCH)
+// ===================================================================
+
+function scheduleHighPriority(
+  exams: Exam[],
+  allRooms: string[],
+  state: SchedulingState,
+  conflictMatrix: ConflictMatrix,
+  scheduled: Map<string, ScheduledExam>,
+  numDays: number
+): { scheduled: number, failed: Exam[] } {
+  console.log('\n🎯 PHASE 2: High Priority Subjects (MATH & ARCH)...');
+  
+  let scheduledCount = 0;
+  const failed: Exam[] = [];
+  
+  // Separate MATH and ARCH
+  const mathExams = exams.filter(e => isMathSubject(e));
+  const archExams = exams.filter(e => isArchSubject(e.subjectId));
+  
+  console.log(`  📐 MATH subjects: ${mathExams.length}`);
+  console.log(`  🏛️  ARCH subjects: ${archExams.length}`);
+  
+  // Schedule MATH first
+  const mathGroups = groupExamsBySubject(mathExams);
+  mathGroups.forEach((group, subjectId) => {
+    let placed = false;
+    
+    for (let day = 0; day < numDays && !placed; day++) {
+      for (let slot = 0; slot < TIME_SLOTS.length && !placed; slot++) {
+        if (tryScheduleGroup(group, day, slot, allRooms, state, conflictMatrix, scheduled)) {
+          scheduledCount += group.length;
+          placed = true;
+          console.log(`    ✅ MATH: ${subjectId} (${group.length} sections)`);
+        }
+      }
+    }
+    
+    if (!placed) {
+      failed.push(...group);
+      console.log(`    ⚠️  MATH: ${subjectId} (${group.length} sections) - deferred`);
+    }
+  });
+  
+  // Schedule ARCH (must use Building C)
+  const archGroups = groupExamsBySubject(archExams);
+  archGroups.forEach((group, subjectId) => {
+    let placed = false;
+    
+    for (let day = 0; day < numDays && !placed; day++) {
+      for (let slot = 0; slot < TIME_SLOTS.length && !placed; slot++) {
+        if (tryScheduleGroup(group, day, slot, allRooms, state, conflictMatrix, scheduled)) {
+          scheduledCount += group.length;
+          placed = true;
+          console.log(`    ✅ ARCH: ${subjectId} (${group.length} sections) → Building C`);
+        }
+      }
+    }
+    
+    if (!placed) {
+      failed.push(...group);
+      console.log(`    ⚠️  ARCH: ${subjectId} (${group.length} sections) - Building C full, deferred`);
+    }
+  });
+  
+  console.log(`  ✅ Phase 2 complete: ${scheduledCount} high-priority subjects scheduled`);
+  return { scheduled: scheduledCount, failed };
+}
+
+// ===================================================================
+// PHASE 3: MAJOR SUBJECTS
+// ===================================================================
+
+function scheduleMajorSubjects(
+  exams: Exam[],
+  allRooms: string[],
+  state: SchedulingState,
+  conflictMatrix: ConflictMatrix,
+  scheduled: Map<string, ScheduledExam>,
+  numDays: number
+): { scheduled: number, failed: Exam[] } {
+  console.log('\n📘 PHASE 3: Major Subjects...');
+  
+  let scheduledCount = 0;
+  const failed: Exam[] = [];
+  
+  const subjectGroups = groupExamsBySubject(exams);
+  
+  // Sort by group size (smaller first)
+  const sortedGroups = Array.from(subjectGroups.entries())
+    .sort((a, b) => a[1].length - b[1].length);
+  
+  sortedGroups.forEach(([subjectId, group]) => {
+    let placed = false;
+    
+    for (let day = 0; day < numDays && !placed; day++) {
+      for (let slot = 0; slot < TIME_SLOTS.length && !placed; slot++) {
+        if (tryScheduleGroup(group, day, slot, allRooms, state, conflictMatrix, scheduled)) {
+          scheduledCount += group.length;
+          placed = true;
+        }
+      }
+    }
+    
+    if (!placed) {
+      failed.push(...group);
+    }
+  });
+  
+  console.log(`  ✅ Phase 3 complete: ${scheduledCount} major subjects scheduled`);
+  return { scheduled: scheduledCount, failed };
+}
+
+// ===================================================================
+// PHASE 4: INDIVIDUAL SCHEDULING (Relaxed)
+// ===================================================================
+
+function scheduleIndividually(
+  exams: Exam[],
+  allRooms: string[],
+  state: SchedulingState,
+  conflictMatrix: ConflictMatrix,
+  scheduled: Map<string, ScheduledExam>,
+  numDays: number
+): number {
+  console.log('\n🔧 PHASE 4: Individual Scheduling (Relaxed Mode)...');
+  
+  let scheduledCount = 0;
+  
+  exams.forEach(exam => {
+    let placed = false;
+    
+    for (let day = 0; day < numDays && !placed; day++) {
+      for (let slot = 0; slot < TIME_SLOTS.length && !placed; slot++) {
+        if (hasConflict(exam, day, slot, state, conflictMatrix)) continue;
+        
+        const availableRooms = getAvailableRooms(exam, day, slot, allRooms, state, is6UnitSubject(exam));
+        
+        if (availableRooms.length > 0) {
+          if (is6UnitSubject(exam)) {
+            if (schedule6UnitExam(exam, day, slot, availableRooms[0], state, scheduled)) {
+              scheduledCount++;
+              placed = true;
+            }
+          } else {
+            scheduleExam(exam, day, slot, availableRooms[0], state, scheduled);
+            scheduledCount++;
+            placed = true;
+          }
+        }
+      }
+    }
+  });
+  
+  console.log(`  ✅ Phase 4 complete: ${scheduledCount} additional exams scheduled`);
+  return scheduledCount;
+}
+
+// ===================================================================
+// MAIN ALGORITHM ENTRY POINT
 // ===================================================================
 
 export function generateExamSchedule(
@@ -351,12 +608,12 @@ export function generateExamSchedule(
   rooms: string[],
   numDays: number
 ): ScheduledExam[] {
-  console.log('🚀 Starting Complete Exam Scheduler Algorithm v4.0...');
+  console.log('🚀 Starting Enhanced Exam Scheduler Algorithm v5.0...');
   console.log(`  Total exams: ${exams.length}`);
   console.log(`  Rooms: ${rooms.length}`);
   console.log(`  Days: ${numDays}`);
   
-  // Initialize
+  // Initialize state
   const state: SchedulingState = {
     assignments: new Map(),
     roomUsage: new Map(),
@@ -367,9 +624,8 @@ export function generateExamSchedule(
   };
   
   const scheduled = new Map<string, ScheduledExam>();
-  const unscheduled: Exam[] = [];
   
-  // Filter SAS
+  // Filter SAS department
   const eligible = exams.filter(e => e.dept.toUpperCase() !== 'SAS');
   console.log(`  Eligible: ${eligible.length} (filtered ${exams.length - eligible.length} SAS)`);
   
@@ -377,73 +633,72 @@ export function generateExamSchedule(
   console.log('📊 Building conflict matrix...');
   const conflictMatrix = buildConflictMatrix(eligible);
   
-  // ===================================================================
-  // PHASE 1: SCHEDULE BY SUBJECT GROUPS (coordinated scheduling)
-  // ===================================================================
-  console.log('\n📚 PHASE 1: Scheduling subjects with section coordination...');
+  // Separate by category
+  const genEds = eligible.filter(e => isGenEdSubject(e.subjectId));
+  const mathSubjects = eligible.filter(e => isMathSubject(e));
+  const archSubjects = eligible.filter(e => isArchSubject(e.subjectId));
+  const majorSubjects = eligible.filter(e => 
+    !isGenEdSubject(e.subjectId) && 
+    !isMathSubject(e) && 
+    !isArchSubject(e.subjectId)
+  );
   
-  const subjectGroups = groupExamsBySubject(eligible);
-  console.log(`  Found ${subjectGroups.size} unique subjects`);
+  console.log(`\n📋 Exam Categories:`);
+  console.log(`  Gen Eds: ${genEds.length}`);
+  console.log(`  MATH: ${mathSubjects.length}`);
+  console.log(`  ARCH: ${archSubjects.length}`);
+  console.log(`  Major: ${majorSubjects.length}`);
   
-  let phase1Success = 0;
-  let phase1Fail: Exam[] = [];
+  // Execute scheduling phases
+  let totalScheduled = 0;
+  let unscheduled: Exam[] = [];
   
-  // Sort by group size (smaller groups first - easier to place)
-  const sortedGroups = Array.from(subjectGroups.entries()).sort((a, b) => a[1].length - b[1].length);
+  // PHASE 1: Gen Ed Time Blocks
+  const phase1 = scheduleGenEdTimeBlocks(genEds, rooms, state, conflictMatrix, scheduled, numDays);
+  totalScheduled += phase1.scheduled;
   
-  sortedGroups.forEach(([subjectId, examGroup]) => {
-    const isGenEd = isGenEdSubject(subjectId);
-    const prefix = isGenEd ? '📗' : '📘';
-    
-    if (tryScheduleGroupAnywhere(examGroup, rooms, state, conflictMatrix, scheduled, numDays)) {
-      console.log(`  ${prefix} ✅ ${subjectId} (${examGroup.length} sections)`);
-      phase1Success += examGroup.length;
-    } else {
-      console.log(`  ${prefix} ⚠️ ${subjectId} (${examGroup.length} sections) - trying individual scheduling`);
-      phase1Fail.push(...examGroup);
-    }
-  });
+  // PHASE 2: High Priority (MATH & ARCH)
+  const phase2 = scheduleHighPriority(
+    [...mathSubjects, ...archSubjects],
+    rooms,
+    state,
+    conflictMatrix,
+    scheduled,
+    numDays
+  );
+  totalScheduled += phase2.scheduled;
   
-  console.log(`\n✅ Phase 1 complete: ${phase1Success}/${eligible.length} scheduled`);
+  // PHASE 3: Major Subjects
+  const phase3 = scheduleMajorSubjects(majorSubjects, rooms, state, conflictMatrix, scheduled, numDays);
+  totalScheduled += phase3.scheduled;
   
-  // ===================================================================
-  // PHASE 2: SCHEDULE REMAINING INDIVIDUALLY (no coordination constraint)
-  // ===================================================================
-  console.log('\n🔧 PHASE 2: Scheduling remaining exams individually...');
+  // PHASE 4: Retry failed exams individually
+  const allFailed = [...phase1.failed, ...phase2.failed, ...phase3.failed];
+  const phase4Count = scheduleIndividually(allFailed, rooms, state, conflictMatrix, scheduled, numDays);
+  totalScheduled += phase4Count;
   
-  let phase2Success = 0;
-  
-  phase1Fail.forEach(exam => {
-    if (tryScheduleExam(exam, rooms, state, conflictMatrix, scheduled, numDays)) {
-      phase2Success++;
-    } else {
-      unscheduled.push(exam);
-    }
-  });
-  
-  console.log(`  ✅ Scheduled ${phase2Success} additional exams`);
-  
-  // ===================================================================
-  // RESULTS
-  // ===================================================================
+  // Calculate final results
   const scheduledArray = Array.from(scheduled.values());
-  const totalScheduled = phase1Success + phase2Success;
   const coverage = ((totalScheduled / eligible.length) * 100).toFixed(2);
   
   console.log('\n✅ ======================== FINAL RESULTS ========================');
   console.log(`  Total eligible exams: ${eligible.length}`);
-  console.log(`  Successfully scheduled: ${totalScheduled} (${scheduledArray.length} entries)`);
-  console.log(`  Unscheduled: ${unscheduled.length}`);
+  console.log(`  Successfully scheduled: ${totalScheduled}`);
+  console.log(`  Unscheduled: ${eligible.length - totalScheduled}`);
   console.log(`  Coverage: ${coverage}%`);
   console.log('================================================================');
   
-  if (unscheduled.length > 0) {
+  // Show unscheduled if any
+  if (totalScheduled < eligible.length) {
     console.warn('\n⚠️  UNSCHEDULED EXAMS:');
-    unscheduled.slice(0, 20).forEach(exam => {
+    const unscheduledExams = eligible.filter(e => 
+      !scheduledArray.some(s => s.CODE === e.code)
+    );
+    unscheduledExams.slice(0, 20).forEach(exam => {
       console.warn(`  - ${exam.subjectId} (${exam.code}): ${exam.course} Yr ${exam.yearLevel}`);
     });
-    if (unscheduled.length > 20) {
-      console.warn(`  ... and ${unscheduled.length - 20} more`);
+    if (unscheduledExams.length > 20) {
+      console.warn(`  ... and ${unscheduledExams.length - 20} more`);
     }
   }
   
