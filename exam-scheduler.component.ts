@@ -30,7 +30,7 @@ import {
 })
 export class ExamSchedulerComponent implements OnInit {
   // State management
-  currentStep: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' = 'import';
+  currentStep: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule' = 'import';
   isLoadingApi: boolean = false;
   
   // Core data
@@ -80,6 +80,10 @@ export class ExamSchedulerComponent implements OnInit {
   roomTimeData: any = { table: {}, rooms: [], days: [] };
   courseGridData: any = { grid: {}, courses: [], days: [] };
 
+  selectedCourse: string = 'ALL';
+  selectedYearLevel: string = 'ALL';
+  selectedDepartment: string = 'ALL'; // NEW: Add department filter
+
   constructor(
     public api: ApiService,
     public global: GlobalService,
@@ -90,28 +94,34 @@ export class ExamSchedulerComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.activeDay = this.days[0];
-    this.roomTimeData.days = [...this.days];
-    this.courseGridData.days = [...this.days];
-    this.combineYearTerm();
-    
-    this.sharedData.clearSelectedExamGroup();
-    this.sharedData.clearExamDates();
-    this.sharedData.clearActiveTerm();
-    this.selectedExamGroup = null;
-    
-    this.loadSavedExamGroups();
-    
-    this.sharedData.selectedExamGroup$.subscribe(group => {
-      if (group) {
-        this.selectedExamGroup = group;
-        this.examDates = group.days.map(d => 
-          d.date ? new Date(d.date).toLocaleDateString('en-CA') : ''
-        );
-        this.activeTerm = group.termYear || '';
-      }
-    });
-  }
+  // ✅ Ensure we start on the import step
+  this.currentStep = 'import';
+  
+  this.activeDay = this.days[0];
+  this.roomTimeData.days = [...this.days];
+  this.courseGridData.days = [...this.days];
+  this.combineYearTerm();
+  
+  this.sharedData.clearSelectedExamGroup();
+  this.sharedData.clearExamDates();
+  this.sharedData.clearActiveTerm();
+  this.selectedExamGroup = null;
+  
+  this.loadSavedExamGroups();
+  
+  this.sharedData.selectedExamGroup$.subscribe(group => {
+    if (group) {
+      this.selectedExamGroup = group;
+      this.examDates = group.days.map(d => 
+        d.date ? new Date(d.date).toLocaleDateString('en-CA') : ''
+      );
+      this.activeTerm = group.termYear || '';
+    }
+  });
+  
+  // ✅ Force initial render
+  this.cdr.detectChanges();
+}
 
   // ===================================================================
   // HELPER METHODS (Required by new algorithm)
@@ -637,21 +647,46 @@ this.exams = data
   // NEW ALGORITHM - MAIN SCHEDULING METHOD
   // ===================================================================
   
-  async generateExamSchedule() {
-    if (!this.selectedExamGroup) {
-      this.showToast('Error', 'Please select an exam group first', 'destructive');
+  // Replace your generateExamSchedule() method in exam-scheduler.component.ts
+
+async generateExamSchedule() {
+  if (!this.selectedExamGroup) {
+    this.showToast('Error', 'Please select an exam group first', 'destructive');
+    return;
+  }
+
+  if (this.hasEmptyDates()) {
+    this.showToast('Error', 'Please fill in all exam dates', 'destructive');
+    return;
+  }
+
+  Swal.fire({
+    title: '🔄 Loading Exam Data',
+    text: 'Fetching exam data from API...',
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    onOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    const dataLoaded = await this.loadExamData();
+    
+    if (!dataLoaded || this.exams.length === 0) {
+      Swal.close();
+      Swal.fire({
+        title: 'Error',
+        text: 'No exam data loaded. Please check the API connection.',
+        type: 'error',
+        confirmButtonText: 'OK'
+      });
       return;
     }
 
-    if (this.hasEmptyDates()) {
-      this.showToast('Error', 'Please fill in all exam dates', 'destructive');
-      return;
-    }
-
-    // Show loading - Angular 8 compatible version
     Swal.fire({
-      title: '🔄 Loading Exam Data',
-      text: 'Fetching exam data from API...',
+      title: '🧠 Generating Schedule',
+      text: `Processing ${this.exams.length} exams...`,
       allowOutsideClick: false,
       allowEscapeKey: false,
       onOpen: () => {
@@ -659,104 +694,91 @@ this.exams = data
       }
     });
 
-    try {
-      // ✅ STEP 1: Load exam data from API first
-      const dataLoaded = await this.loadExamData();
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const numDays = this.examDates.filter(d => d).length;
+    const startTime = Date.now();
+    
+    this.generatedSchedule = algorithmGenerateSchedule(
+      this.exams,
+      this.rooms,
+      numDays
+    );
+
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    const stats = this.calculateScheduleStats();
+
+    // ✅ Close loading dialog first
+    Swal.close();
+    
+    // ✅ Small delay to ensure DOM is ready
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // ✅ Show success dialog with button
+    const result = await Swal.fire({
+  title: '✅ Schedule Generated Successfully!',
+  html: `
+    <div style="text-align: left; padding: 15px;">
+      <div style="background: #e8f5e9; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+        <p style="margin: 0; color: #2e7d32;"><strong>⏱️ Generation Time: ${duration} seconds</strong></p>
+      </div>
       
-      if (!dataLoaded || this.exams.length === 0) {
-        Swal.close();
-        Swal.fire({
-          title: 'Error',
-          text: 'No exam data loaded. Please check the API connection.',
-          type: 'error',
-          confirmButtonText: 'OK'
-        });
-        return;
-      }
+      <h4 style="color: #1565C0; margin-bottom: 10px;">📊 Statistics:</h4>
+      <ul style="list-style: none; padding: 0;">
+        <li>✅ Total Exams: <strong>${this.exams.length}</strong></li>
+        <li>✅ Scheduled: <strong>${stats.scheduled}</strong> (${stats.coverage}%)</li>
+        <li>📅 Days: <strong>${numDays}</strong></li>
+        <li>🏫 Rooms Used: <strong>${stats.roomsUsed}</strong></li>
+        <li>⚠️ Conflicts: <strong>${stats.conflicts}</strong></li>
+      </ul>
+    </div>
+  `,
+  type: 'success',
+  showCancelButton: true,
+  confirmButtonText: '📋 View Schedule',
+  cancelButtonText: '✖ Close',
+  confirmButtonColor: '#10b981',
+  cancelButtonColor: '#6b7280',
+  allowOutsideClick: false
+});
 
-      // Update loading message
-      Swal.fire({
-        title: '🧠 Generating Schedule',
-        text: `Processing ${this.exams.length} exams with enhanced algorithm...`,
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        onOpen: () => {
-          Swal.showLoading();
-        }
-      });
-
-      // Allow UI to update
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const numDays = this.examDates.filter(d => d).length;
-
-      console.log('🚀 Starting schedule generation...');
-      const startTime = Date.now();
+    // ✅ CRITICAL FIX: Navigate immediately when button is clicked
+    if (result.value) {
+  console.log('🔍 Navigating to schedule view...');
+  console.log('🔍 Generated Schedule Length:', this.generatedSchedule.length);
       
-      // ✅ STEP 2: Call the algorithm
-      this.generatedSchedule = algorithmGenerateSchedule(
-        this.exams,
-        this.rooms,
-        numDays
-      );
-
-      const endTime = Date.now();
-      const duration = ((endTime - startTime) / 1000).toFixed(2);
-
-      // Calculate stats
-      const stats = this.calculateScheduleStats();
-
-      // Close loading
-      Swal.close();
-
-      // Show success - Angular 8 compatible version
-      Swal.fire({
-        title: '✅ Schedule Generated Successfully!',
-        html: `
-          <div style="text-align: left; padding: 15px;">
-            <div style="background: #e8f5e9; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
-              <p style="margin: 0; color: #2e7d32;"><strong>⏱️ Generation Time: ${duration} seconds</strong></p>
-            </div>
-            
-            <h4 style="color: #1565C0; margin-bottom: 10px;">📊 Statistics:</h4>
-            <ul style="list-style: none; padding: 0;">
-              <li>✅ Total Exams: <strong>${this.exams.length}</strong></li>
-              <li>✅ Scheduled: <strong>${stats.scheduled}</strong> (${stats.coverage}%)</li>
-              <li>📅 Days: <strong>${numDays}</strong></li>
-              <li>🏫 Rooms Used: <strong>${stats.roomsUsed}</strong></li>
-              <li>⚠️ Conflicts: <strong>${stats.conflicts}</strong></li>
-            </ul>
-
-            <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 5px;">
-              <small style="color: #856404;">
-                💡 <strong>Tip:</strong> Use the Summary, Room-Time Table, and Course Grid views to review the schedule
-              </small>
-            </div>
-          </div>
-        `,
-        type: 'success',
-        confirmButtonText: 'View Schedule',
-        confirmButtonColor: '#10b981'
-      }).then((result: any) => {
-        if (result.value) {
-          this.currentStep = 'summary';
-          this.viewCourseSummary();
-          this.cdr.detectChanges();
-        }
-      });
-
-    } catch (error) {
-      console.error('Error generating schedule:', error);
-      Swal.close();
+      // Then prepare the data
+      this.generateSimpleScheduleData();
       
-      Swal.fire({
-        title: 'Error',
-        text: 'Failed to generate schedule. Check console for details.',
-        type: 'error',
-        confirmButtonText: 'OK'
-      });
+      // Reset filters
+       this.selectedCourse = 'ALL';
+       this.selectedYearLevel = 'ALL';
+       this.selectedDepartment = 'ALL';
+      
+       // Set the step AFTER data is ready
+      this.currentStep = 'simpleschedule';
+
+
+      // Force multiple change detections
+      this.cdr.detectChanges();
+      
+      // Small delay and another change detection
+      console.log('✅ Navigation complete. Current step:', this.currentStep);
     }
+
+  } catch (error) {
+    console.error('❌ Error generating schedule:', error);
+    Swal.close();
+    
+    Swal.fire({
+      title: 'Error',
+      text: 'Failed to generate schedule. Check console for details.',
+      type: 'error',
+      confirmButtonText: 'OK'
+    });
   }
+}
 
   calculateScheduleStats(): any {
     const scheduled = this.generatedSchedule.length;
@@ -1125,6 +1147,15 @@ this.exams = data
     this.cdr.detectChanges();
   }
 
+
+  getUniqueDepartments(): string[] {
+  const departments = new Set<string>();
+  this.generatedSchedule.forEach(exam => {
+    if (exam.DEPT) departments.add(exam.DEPT);
+  });
+  return ['ALL', ...Array.from(departments).sort()];
+}
+
   // ===================================================================
   // EDITING METHODS
   // ===================================================================
@@ -1286,7 +1317,7 @@ this.exams = data
     return dept ? colors[dept.toUpperCase()] || '#6b7280' : '#6b7280';
   }
 
-  goToStep(step: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid') {
+  goToStep(step: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule') {
     this.currentStep = step;
   }
 
@@ -1360,4 +1391,136 @@ this.exams = data
     this.toast = { title, description, variant };
     setTimeout(() => this.toast = null, 3000);
   }
+
+  viewSimpleSchedule() {
+  console.log('📋 viewSimpleSchedule() called');
+  console.log('📋 Schedule length:', this.generatedSchedule.length);
+  
+  if (this.generatedSchedule.length === 0) {
+    this.showToast('Error', 'No schedule data available', 'destructive');
+    return;
+  }
+  
+  // Prepare data
+  this.generateSimpleScheduleData();
+  
+  // Reset filters
+  this.selectedCourse = 'ALL';
+  this.selectedYearLevel = 'ALL';
+  this.selectedDepartment = 'ALL';
+  
+  // Navigate
+  this.currentStep = 'simpleschedule';
+  
+  // Force UI update
+  this.cdr.detectChanges();
+  
+  console.log('✅ Navigated to simple schedule view');
+}
+
+generateSimpleScheduleData() {
+  this.generatedSchedule.sort((a, b) => {
+    const codeA = parseInt(a.CODE) || 0;
+    const codeB = parseInt(b.CODE) || 0;
+    return codeA - codeB;
+  });
+}
+
+getUniqueCourses(): string[] {
+  const courses = new Set<string>();
+  this.generatedSchedule.forEach(exam => {
+    if (exam.COURSE) courses.add(exam.COURSE);
+  });
+  return ['ALL', ...Array.from(courses).sort()];
+}
+
+getUniqueYearLevels(): string[] {
+  const years = new Set<string>();
+  this.generatedSchedule.forEach(exam => {
+    if (exam.YEAR_LEVEL) years.add(exam.YEAR_LEVEL.toString());
+  });
+  return ['ALL', ...Array.from(years).sort()];
+}
+
+getFilteredSchedule(): ScheduledExam[] {
+  console.log('🔍 Filtering schedule...');
+  console.log('Selected Course:', this.selectedCourse);
+  console.log('Selected Year:', this.selectedYearLevel);
+  console.log('Selected Dept:', this.selectedDepartment);
+  
+  const filtered = this.generatedSchedule.filter(exam => {
+    const courseMatch = this.selectedCourse === 'ALL' || exam.COURSE === this.selectedCourse;
+    const yearMatch = this.selectedYearLevel === 'ALL' || exam.YEAR_LEVEL.toString() === this.selectedYearLevel;
+    const deptMatch = this.selectedDepartment === 'ALL' || exam.DEPT === this.selectedDepartment;
+    return courseMatch && yearMatch && deptMatch;
+  });
+  
+  console.log('✅ Filtered results:', filtered.length);
+  return filtered;
+}
+
+formatTimeForDisplay(slot: string): string {
+  const parts = slot.split('-');
+  if (parts.length !== 2) return slot;
+  
+  const formatTime = (time: string) => {
+    const [hours, mins] = time.split(':');
+    const h = parseInt(hours);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const displayHour = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+    return `${displayHour.toString().padStart(2, '0')}:${mins}${ampm}`;
+  };
+  
+  return `${formatTime(parts[0])}-${formatTime(parts[1])}`;
+}
+
+getDayName(day: string): string {
+  const dayMap: { [key: string]: string } = {
+    'Day 1': 'MWF',
+    'Day 2': 'TTH',
+    'Day 3': 'SAT'
+  };
+  return dayMap[day] || day;
+}
+
+downloadSimpleScheduleExcel() {
+  const filtered = this.getFilteredSchedule();
+  
+  if (filtered.length === 0) {
+    this.showToast('Error', 'No data to export', 'destructive');
+    return;
+  }
+
+  const excelData = filtered.map(exam => ({
+    'Code No': exam.CODE,
+    'Subject ID': exam.SUBJECT_ID,
+    'Descriptive Title': exam.DESCRIPTIVE_TITLE,
+    'Course': exam.COURSE,
+    'Year Level': exam.YEAR_LEVEL,
+    'Day': this.getDayName(exam.DAY),
+    'Time': this.formatTimeForDisplay(exam.SLOT),
+    'Room': exam.ROOM,
+    'Instructor': exam.INSTRUCTOR,
+    'Department': exam.DEPT
+  }));
+
+  const ws: XLSX.WorkSheet = XLSX.utils.json_to_sheet(excelData);
+  
+  ws['!cols'] = [
+    { wch: 8 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 10 },
+    { wch: 8 }, { wch: 18 }, { wch: 10 }, { wch: 30 }, { wch: 12 }
+  ];
+
+  const wb: XLSX.WorkBook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Exam Schedule');
+
+  const fileName = this.selectedExamGroup 
+    ? `${this.selectedExamGroup.name}_Schedule.xlsx`
+    : 'Exam_Schedule.xlsx';
+
+  XLSX.writeFile(wb, fileName);
+  
+  this.showToast('Success', `Exported ${filtered.length} exams to Excel`);
+}
+
 }

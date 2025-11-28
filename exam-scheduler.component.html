@@ -50,7 +50,6 @@
             Add Dates
           </button>
         </div>
-        
 
         <!-- ✅ Always show table with headers -->
         <div style="max-height: 400px; overflow-y: auto;">
@@ -315,12 +314,194 @@
 
     <!-- Buttons below table -->
     <div class="mt-3" style="margin-top: 20px; display: flex; gap: 10px;">
+      <button class="btn btn-primary" (click)="viewSimpleSchedule()">
+        📋 View Simple List
+      </button>
       <button class="btn btn-primary" (click)="viewCourseSummary()">
-        View Course Summary
+        📚 View by Course
+      </button>
+      <button class="btn btn-outline" (click)="viewRoomTimeTable()">
+        🏢 View by Room
       </button>
       <button class="btn btn-outline" (click)="viewCourseGrid()">
-        View Course Grid
+        📅 View Grid
       </button>
+    </div>
+  </div>
+
+  <!-- ✅ STEP 2B: SIMPLE SCHEDULE VIEW (NOW A SIBLING!) -->
+  <div *ngIf="currentStep === 'simpleschedule'" class="card">
+    <div style="background: yellow; padding: 10px; margin-bottom: 10px;">
+      <strong>DEBUG INFO:</strong><br>
+      Current Step: {{ currentStep }}<br>
+      Schedule Length: {{ generatedSchedule.length }}<br>
+      Filtered Length: {{ getFilteredSchedule().length }}
+    </div>
+
+    <div class="card-header">
+      <h2>Exam Schedule - Complete List</h2>
+      <div class="button-group">
+        <button class="btnback" (click)="goToStep('generate')">
+          ⬅ Back
+        </button>
+        <button class="btn btn-primary" (click)="downloadSimpleScheduleExcel()">
+          📥 Download Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- ✅ UPDATED FILTERS: Added Department -->
+    <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+      
+      <!-- Course Filter -->
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label style="font-weight: 600; color: #333;">Program:</label>
+        <select 
+          [(ngModel)]="selectedCourse" 
+          class="form-control" 
+          style="width: 200px; padding: 8px;">
+          <option *ngFor="let course of getUniqueCourses()" [value]="course">
+            {{ course }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Year Level Filter -->
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label style="font-weight: 600; color: #333;">Year Level:</label>
+        <select 
+          [(ngModel)]="selectedYearLevel" 
+          class="form-control" 
+          style="width: 150px; padding: 8px;">
+          <option *ngFor="let year of getUniqueYearLevels()" [value]="year">
+            {{ year === 'ALL' ? 'ALL' : 'Year ' + year }}
+          </option>
+        </select>
+      </div>
+
+      <!-- ✅ NEW: Department Filter -->
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label style="font-weight: 600; color: #333;">Department:</label>
+        <select 
+          [(ngModel)]="selectedDepartment" 
+          class="form-control" 
+          style="width: 150px; padding: 8px;">
+          <option *ngFor="let dept of getUniqueDepartments()" [value]="dept">
+            {{ dept }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Result Count -->
+      <div style="margin-left: auto; color: #666; font-weight: 600;">
+        Showing {{ getFilteredSchedule().length }} of {{ generatedSchedule.length }} exams
+      </div>
+    </div>
+
+    <!-- ✅ UPDATED TABLE: Added Department Column -->
+    <div style="overflow-x: auto; overflow-y: auto; max-height: 600px; border: 1px solid #ddd;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <thead style="position: sticky; top: 0; background-color: #2c3e50; z-index: 10;">
+          <tr>
+            <th style="padding: 12px 8px; color: white; text-align: left; width: 80px; border-right: 1px solid #445566;">Code No</th>
+            <th style="padding: 12px 8px; color: white; text-align: left; width: 120px; border-right: 1px solid #445566;">Subject ID</th>
+            <th style="padding: 12px 8px; color: white; text-align: left; width: 350px; border-right: 1px solid #445566;">Descriptive Title</th>
+            <!-- ✅ NEW: Department Column -->
+            <th style="padding: 12px 8px; color: white; text-align: center; width: 100px; border-right: 1px solid #445566;">Department</th>
+            <th style="padding: 12px 8px; color: white; text-align: center; width: 100px; border-right: 1px solid #445566;">Course</th>
+            <th style="padding: 12px 8px; color: white; text-align: center; width: 80px; border-right: 1px solid #445566;">Year</th>
+            <th style="padding: 12px 8px; color: white; text-align: center; width: 80px; border-right: 1px solid #445566;">Day</th>
+            <th style="padding: 12px 8px; color: white; text-align: center; width: 150px; border-right: 1px solid #445566;">Time</th>
+            <th style="padding: 12px 8px; color: white; text-align: center; width: 90px;">Room</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let exam of getFilteredSchedule(); let i = index" 
+              [style.background-color]="i % 2 === 0 ? '#ffffff' : '#f9f9f9'"
+              style="border-bottom: 1px solid #e0e0e0;">
+            
+            <td style="padding: 10px 8px; border-right: 1px solid #e0e0e0;">
+              {{ exam.CODE }}
+            </td>
+            
+            <td style="padding: 10px 8px; font-weight: 600; color: #2c3e50; border-right: 1px solid #e0e0e0;">
+              {{ exam.SUBJECT_ID }}
+            </td>
+            
+            <td style="padding: 10px 8px; border-right: 1px solid #e0e0e0;">
+              {{ exam.DESCRIPTIVE_TITLE }}
+            </td>
+            
+            <!-- ✅ NEW: Department Cell with Color Badge -->
+            <td style="padding: 10px 8px; text-align: center; border-right: 1px solid #e0e0e0;">
+              <span [style.background-color]="getDeptColor(exam.DEPT)" 
+                    style="color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; display: inline-block;">
+                {{ exam.DEPT }}
+              </span>
+            </td>
+            
+            <td style="padding: 10px 8px; text-align: center; border-right: 1px solid #e0e0e0;">
+              <span style="background-color: #e3f2fd; color: #1565c0; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">
+                {{ exam.COURSE }}
+              </span>
+            </td>
+            
+            <td style="padding: 10px 8px; text-align: center; border-right: 1px solid #e0e0e0;">
+              <span style="background-color: #f3e5f5; color: #7b1fa2; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                {{ exam.YEAR_LEVEL }}
+              </span>
+            </td>
+            
+            <td style="padding: 10px 8px; text-align: center; font-weight: 600; color: #424242; border-right: 1px solid #e0e0e0;">
+              {{ getDayName(exam.DAY) }}
+            </td>
+            
+            <td style="padding: 10px 8px; text-align: center; color: #555; border-right: 1px solid #e0e0e0;">
+              {{ formatTimeForDisplay(exam.SLOT) }}
+            </td>
+            
+            <td style="padding: 10px 8px; text-align: center; font-weight: 600; color: #1976d2;">
+              {{ exam.ROOM }}
+            </td>
+          </tr>
+
+          <!-- Empty state -->
+          <tr *ngIf="getFilteredSchedule().length === 0">
+            <td colspan="9" style="padding: 40px; text-align: center; color: #999; font-style: italic;">
+              No exams match the selected filters
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Summary Stats -->
+    <div style="background: #e8f5e9; padding: 15px; border-radius: 5px; margin-top: 20px;">
+      <h4 style="color: #2e7d32; margin: 0 0 10px 0;">📊 Schedule Statistics</h4>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px;">
+        <div>
+          <div style="font-size: 12px; color: #666;">Total Exams</div>
+          <div style="font-size: 24px; font-weight: 600; color: #2e7d32;">{{ generatedSchedule.length }}</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #666;">Programs</div>
+          <div style="font-size: 24px; font-weight: 600; color: #2e7d32;">
+            {{ getUniqueCourses().length - 1 }}
+          </div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #666;">Departments</div>
+          <div style="font-size: 24px; font-weight: 600; color: #2e7d32;">
+            {{ getUniqueDepartments().length - 1 }}
+          </div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #666;">Rooms Used</div>
+          <div style="font-size: 24px; font-weight: 600; color: #2e7d32;">
+            {{ (generatedSchedule | unique: 'ROOM').length || 0 }}
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -433,8 +614,7 @@
     && roomTimeData.table[activeDay][room] 
     && roomTimeData.table[activeDay][room][slot]
       ? getDeptColor(roomTimeData.table[activeDay][room][slot].dept)
-      : 'transparent'
-">
+      : 'transparent'">
 
               <div *ngIf="
   roomTimeData.table[activeDay] 
@@ -468,7 +648,7 @@
     </div>
   </div>
 
-  <!-- COURSE GRID (WITH YEAR LEVEL) -->
+  <!-- STEP 5: COURSE GRID (WITH YEAR LEVEL) -->
   <div *ngIf="currentStep === 'coursegrid'" class="card">
     <div class="card-header">
       <h2>Step 5: Course Grid Editor</h2>
