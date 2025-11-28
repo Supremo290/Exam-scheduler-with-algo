@@ -30,7 +30,7 @@ import {
 })
 export class ExamSchedulerComponent implements OnInit {
   // State management
-  currentStep: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule' = 'import';
+  currentStep: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule' | 'roomgrid' = 'import';
   isLoadingApi: boolean = false;
   
   // Core data
@@ -1291,6 +1291,122 @@ async generateExamSchedule() {
     }
   }
 
+// Method to navigate to room grid
+viewRoomScheduleGrid() {
+  console.log('📅 viewRoomScheduleGrid() called');
+  this.currentStep = 'roomgrid';
+  this.activeDay = this.days[0];
+  this.cdr.detectChanges();
+}
+
+// Get sorted list of rooms
+getRoomsForGrid(): string[] {
+  const roomsInSchedule = new Set<string>();
+  this.generatedSchedule.forEach(exam => {
+    if (exam.ROOM) roomsInSchedule.add(exam.ROOM);
+  });
+  
+  return Array.from(roomsInSchedule).sort((a, b) => {
+    // Sort by building letter, then by room number
+    const aBuilding = a.charAt(0);
+    const bBuilding = b.charAt(0);
+    
+    if (aBuilding !== bBuilding) {
+      return aBuilding.localeCompare(bBuilding);
+    }
+    
+    // ✅ FIXED: Use traditional approach instead of optional chaining
+    const aMatch = a.match(/\d+/);
+    const aNum = parseInt(aMatch ? aMatch[0] : '0');
+    
+    const bMatch = b.match(/\d+/);
+    const bNum = parseInt(bMatch ? bMatch[0] : '0');
+    
+    return aNum - bNum;
+  });
+}
+
+// Get data for a specific room and time slot
+getRoomSlotData(room: string, slot: string, day: string): any {
+  const exam = this.generatedSchedule.find(e => 
+    e.ROOM === room && e.SLOT === slot && e.DAY === day
+  );
+  
+  if (!exam) return null;
+  
+  return {
+    code: exam.CODE,
+    subjectId: exam.SUBJECT_ID,
+    course: exam.COURSE,
+    year: exam.YEAR_LEVEL,
+    dept: exam.DEPT,
+    bgColor: this.getDeptColor(exam.DEPT)
+  };
+}
+
+// Get count of occupied slots for a day
+getOccupiedSlotsCount(day: string): number {
+  return this.generatedSchedule.filter(e => e.DAY === day).length;
+}
+
+// Get utilization percentage
+getUtilizationPercent(day: string): string {
+  const totalSlots = this.getRoomsForGrid().length * this.timeSlots.length;
+  const occupied = this.getOccupiedSlotsCount(day);
+  
+  if (totalSlots === 0) return '0.0';
+  
+  return ((occupied / totalSlots) * 100).toFixed(1);
+}
+
+// Download room grid as Excel
+downloadRoomGridExcel() {
+  // Create workbook with one sheet per day
+  const wb: XLSX.WorkBook = XLSX.utils.book_new();
+  
+  this.days.forEach(day => {
+    const rooms = this.getRoomsForGrid();
+    const data: any[] = [];
+    
+    // Header row
+    const headerRow = ['ROOM', ...this.timeSlots];
+    data.push(headerRow);
+    
+    // Data rows
+    rooms.forEach(room => {
+      const row = [room];
+      
+      this.timeSlots.forEach(slot => {
+        const slotData = this.getRoomSlotData(room, slot, day);
+        row.push(slotData ? slotData.code : '');
+      });
+      
+      data.push(row);
+    });
+    
+    const ws: XLSX.WorkSheet = XLSX.utils.aoa_to_sheet(data);
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 10 }, // Room column
+      ...this.timeSlots.map(() => ({ wch: 12 })) // Time slot columns
+    ];
+    
+    const sheetName = this.getDayName(day).substring(0, 31); // Excel sheet name limit
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+  
+  const fileName = this.selectedExamGroup 
+    ? `${this.selectedExamGroup.name}_Room_Grid.xlsx`
+    : 'Room_Schedule_Grid.xlsx';
+  
+  XLSX.writeFile(wb, fileName);
+  
+  this.showToast('Success', 'Room grid exported to Excel');
+}
+
+
+
   // ===================================================================
   // UTILITY METHODS
   // ===================================================================
@@ -1313,14 +1429,14 @@ async generateExamSchedule() {
   }
 
   getDeptColor(dept: string): string {
-    const colors: { [key: string]: string } = {
-      'SACE': '#ef4444',
-      'SABH': '#facc15',
-      'SECAP': '#3b82f6',
-      'SHAS': '#22c55e'
-    };
-    return dept ? colors[dept.toUpperCase()] || '#6b7280' : '#6b7280';
-  }
+  const colors: { [key: string]: string } = {
+    'SACE': '#ef4444',    // Red
+    'SABH': '#facc15',    // Yellow
+    'SECAP': '#3b82f6',   // Blue
+    'SHAS': '#22c55e'     // Green
+  };
+  return dept ? colors[dept.toUpperCase()] || '#6b7280' : '#6b7280';
+}
 
   goToStep(step: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule') {
     this.currentStep = step;
