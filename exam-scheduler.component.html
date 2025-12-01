@@ -533,12 +533,21 @@
   </div>
 
     <!-- Day Tabs -->
-<div class="tabs">
+<!-- ✅ FIXED: Day Tabs with proper click handlers -->
+<div class="tabs" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #dee2e6;">
   <button 
     *ngFor="let day of days; let i = index" 
     class="tab" 
     [class.active]="activeDay === day"
-    (click)="activeDay = day">
+    (click)="selectActiveDay(day)"
+    [style.background-color]="activeDay === day ? '#007bff' : '#f8f9fa'"
+    [style.color]="activeDay === day ? 'white' : '#495057'"
+    [style.border]="'none'"
+    [style.padding]="'12px 24px'"
+    [style.cursor]="'pointer'"
+    [style.border-radius]="'4px 4px 0 0'"
+    [style.font-weight]="activeDay === day ? '600' : '400'"
+    [style.transition]="'all 0.3s ease'">
     {{ getDayName(day) }}
   </button>
 </div>

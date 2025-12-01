@@ -49,9 +49,9 @@ export class ExamSchedulerComponent implements OnInit {
   
   // Time slots (1.5 hour intervals)
   timeSlots: string[] = [
-    '7:30-9:00', '9:00-10:30', '10:30-12:00', '12:00-1:30',
-    '1:30-3:00', '3:00-4:30', '4:30-6:00', '6:00-7:30'
-  ];
+  '7:30-9:00', '9:00-10:30', '10:30-12:00', '12:00-13:30',
+  '13:30-15:00', '15:00-16:30', '16:30-18:00', '18:00-19:30'
+];
   
   // Term selection
   activeTerm: string = '';
@@ -1213,6 +1213,22 @@ async generateExamSchedule() {
     this.movePopupVisible = false;
   }
 
+
+ // Add this method if you haven't already
+selectActiveDay(day: string): void {
+  console.log('📅 Selecting day:', day);
+  console.log('📅 Current activeDay:', this.activeDay);
+  
+  this.activeDay = day;
+  
+  console.log('📅 New activeDay:', this.activeDay);
+  
+  // Force Angular to detect changes
+  this.cdr.detectChanges();
+  
+  console.log('✅ Day selection complete');
+}
+
   applyMove(newDay: string, newSlot: string) {
     if (!this.moveExamData || !this.moveExamData.groupExams) {
       this.showToast('Error', 'No exams selected to move', 'destructive');
@@ -1438,9 +1454,17 @@ downloadRoomGridExcel() {
   return dept ? colors[dept.toUpperCase()] || '#6b7280' : '#6b7280';
 }
 
-  goToStep(step: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule') {
-    this.currentStep = step;
+  goToStep(step: 'import' | 'generate' | 'summary' | 'timetable' | 'coursegrid' | 'simpleschedule' | 'roomgrid'): void {
+  console.log('🔄 Navigating to step:', step);
+  this.currentStep = step;
+  
+  // Reset active day when going to steps with day tabs
+  if (step === 'roomgrid' || step === 'timetable' || step === 'coursegrid') {
+    this.activeDay = this.days[0] || 'Day 1';
   }
+  
+  this.cdr.detectChanges();
+}
 
   getTermYearLabel(termYearCode: string): string {
     if (!termYearCode) return 'Unknown';
@@ -1651,7 +1675,8 @@ formatTimeForDisplay(slot: string): string {
     const h = parseInt(hours);
     const ampm = h >= 12 ? 'PM' : 'AM';
     const displayHour = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-    return `${displayHour.toString().padStart(2, '0')}:${mins}${ampm}`;
+    // FIX: Don't pad single digit hours - it makes 3 PM look like 03 AM
+    return `${displayHour}:${mins}${ampm}`;
   };
   
   return `${formatTime(parts[0])}-${formatTime(parts[1])}`;

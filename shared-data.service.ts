@@ -244,6 +244,3 @@ getRoomMappingForGroup(groupName: string, term: string): any {
 
 
 }
-
-
-
